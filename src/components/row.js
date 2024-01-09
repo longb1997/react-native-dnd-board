@@ -7,7 +7,7 @@ import style from '../style';
 const Row = memo(({ row, move, renderItem, hidden, onPress, onDragStartCallback }) => {
   const onDragBegin = () => {
     if (onDragStartCallback) {
-      onDragStartCallback();
+      onDragStartCallback(row);
     }
     const hoverComponent = renderItem({
       move,
