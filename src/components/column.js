@@ -70,7 +70,7 @@ const Column = ({
   };
 
   return (
-    <View style={[style.container, { minWidth: columnWidth }]}>
+    <View style={[style.container, { width: columnWidth }]}>
       <FlatList
         ref={setRef}
         data={rows}

@@ -9,6 +9,7 @@ import {
   PanGestureHandler,
   State,
   ScrollView,
+  GestureHandlerRootView,
 } from 'react-native-gesture-handler';
 import Animated from 'react-native-reanimated';
 
@@ -20,7 +21,10 @@ import Utils from './commons/utils';
 const { block, call, cond } = Animated;
 
 const SCROLL_THRESHOLD = 50;
-const SCROLL_STEP = 8;
+const SCROLL_STEP = 0;
+
+
+
 
 const DraggableBoard = ({
   repository,
@@ -32,16 +36,18 @@ const DraggableBoard = ({
   activeRowRotation = 8,
   xScrollThreshold = SCROLL_THRESHOLD,
   yScrollThreshold = SCROLL_THRESHOLD,
-  dragSpeedFactor = 1,
+  dragRangeFactor = 1,
   onRowPress = () => { },
   onDragStart = () => { },
   onDragEnd = () => { },
   style: boardStyle,
   horizontal = true,
 }) => {
-  const [forceUpdate, setForceUpdate] = useState(false);
+  const [, setForceUpdate] = useState(false);
   const [hoverComponent, setHoverComponent] = useState(null);
   const [movingMode, setMovingMode] = useState(false);
+
+  const autoScrollInterval = useRef(null);
 
   let translateX = useRef(new Animated.Value(0)).current;
   let translateY = useRef(new Animated.Value(0)).current;
@@ -51,7 +57,9 @@ const DraggableBoard = ({
 
   const scrollViewRef = useRef();
   const scrollOffset = useRef(0);
-  const hoverRowItem = useRef();
+  const hoverRowItem = useRef(null);
+
+  const snapToInterval = columnWidth || (Utils.deviceWidth - 10); // You can set somePadding to center the column
 
   useEffect(() => {
     repository.setReload(() => setForceUpdate(prevState => !prevState));
@@ -94,6 +102,11 @@ const DraggableBoard = ({
           setMovingMode(false);
 
           if (onDragEnd) {
+            //clear auto scroll interval after release item
+            if (autoScrollInterval.current) {
+              clearInterval(autoScrollInterval.current)
+              autoScrollInterval.current = null;
+            }
             onDragEnd(
               hoverRowItem.current.oldColumnId,
               hoverRowItem.current.columnId,
@@ -117,41 +130,42 @@ const DraggableBoard = ({
   };
 
   const handleRowPosition = ([x, y]) => {
+    if (autoScrollInterval.current) {
+      clearInterval(autoScrollInterval.current);
+      autoScrollInterval.current = null;
+    }
     if (hoverRowItem.current && (x || y)) {
-      const columnAtPosition = repository.moveRow(
-        hoverRowItem.current,
-        x,
-        y,
-        listenRowChangeColumn,
-      );
+        const columnAtPosition = repository.moveRow(
+          hoverRowItem.current,
+          x,
+          y,
+          listenRowChangeColumn
+        )
 
-      if (columnAtPosition && scrollViewRef.current) {
-        // handle scroll horizontal
-        if (x + xScrollThreshold > Utils.deviceWidth) {
-          scrollOffset.current += SCROLL_STEP;
-          scrollViewRef.current.scrollTo({
-            x: scrollOffset.current * dragSpeedFactor,
-            y: 0,
-            animated: true
-          });
-          repository.measureColumnsLayout();
-        } else if (x < xScrollThreshold) {
-          scrollOffset.current -= SCROLL_STEP;
-          scrollViewRef.current.scrollTo({
-            x: scrollOffset.current / dragSpeedFactor,
-            y: 0,
-            animated: true
-          });
+        if (columnAtPosition && scrollViewRef.current) {
+
+          // When at the right edge, start an interval to keep scrolling
+          if (x + xScrollThreshold > Utils.deviceWidth) {
+            autoScrollInterval.current = setInterval(() => {
+              scrollOffset.current += SCROLL_STEP;
+              scrollViewRef?.current?.scrollTo({
+                x: (scrollOffset.current * dragRangeFactor) + columnWidth,
+                y: 0,
+                animated: true,
+              });
+            }, 800);
+          } else if (x < xScrollThreshold) { // When at the left edge, start an interval to keep scrolling
+            autoScrollInterval.current = setInterval(() => {
+              scrollOffset.current -= SCROLL_STEP;
+              scrollViewRef?.current?.scrollTo({
+                x: (scrollOffset.current / dragRangeFactor) - columnWidth,
+                y: 0,
+                animated: true,
+              });
+            }, 800);
+          }
           repository.measureColumnsLayout();
         }
-
-        // handle scroll inside item
-        // if (y + SCROLL_THRESHOLD > columnAtPosition.layout.y) {
-        //   repository.columns[columnAtPosition.id].scrollOffset(y + SCROLL_STEP);
-        // } else if (y < SCROLL_THRESHOLD) {
-        //   repository.columns[columnAtPosition.id].scrollOffset(y - SCROLL_STEP);
-        // }
-      }
     }
   };
 
@@ -220,6 +234,28 @@ const DraggableBoard = ({
     moveItem(hoverColumn, column, true);
   };
 
+  const _onDragStart = (rowItem) => {
+    console.log('onDragStart', rowItem)
+    const columnId = rowItem.columnId; // rowItem should have the columnId property
+    const column = repository.getColumnById(columnId);
+    
+    if (column && column.ref) {
+      console.log('columnRef', column.ref)
+      column.ref.measureLayout(scrollViewRef.current, (x, y, width, height) => {
+        const scrollViewWidth = Utils.deviceWidth;
+        const targetScrollX = x + width / 2 - scrollViewWidth / 2;
+        scrollViewRef.current.scrollTo({
+          x: targetScrollX,
+          y: 0,
+          animated: true,
+        });
+      });
+    }
+
+    onDragStart && onDragStart(column)
+  };
+  
+
   const renderColumns = () => {
     const columns = repository.getColumns();
     return columns.map((column, index) => {
@@ -236,7 +272,7 @@ const DraggableBoard = ({
           scrollEnabled={!movingMode}
           columnWidth={columnWidth}
           onRowPress={onRowPress}
-          onDragStartCallback={onDragStart}
+          onDragStartCallback={_onDragStart}
         />
       );
 
@@ -255,43 +291,46 @@ const DraggableBoard = ({
   };
 
   return (
-    <PanGestureHandler
-      onGestureEvent={onPanGestureEvent}
-      onHandlerStateChange={onHandlerStateChange}>
-      <Animated.View style={[style.container, boardStyle]}>
-        <ScrollView
-          ref={scrollViewRef}
-          scrollEnabled={!movingMode}
-          horizontal={horizontal}
-          nestedScrollEnabled
-          showsHorizontalScrollIndicator={false}
-          showsVerticalScrollIndicator={false}
-          scrollEventThrottle={16}
-          onScroll={onScroll}
-          onScrollEndDrag={onScrollEnd}
-          onMomentumScrollEnd={onScrollEnd}>
-          {renderColumns()}
+    <GestureHandlerRootView style={{flex: 1}}>
+      <PanGestureHandler
+        onGestureEvent={onPanGestureEvent}
+        onHandlerStateChange={onHandlerStateChange}>
+        <Animated.View style={[style.container, boardStyle]}>
+          <ScrollView
+            ref={scrollViewRef}
+            scrollEnabled={!movingMode}
+            horizontal={horizontal}
+            snapToInterval={snapToInterval}
+            snapToAlignment={'center'}
+            nestedScrollEnabled
+            showsHorizontalScrollIndicator={false}
+            showsVerticalScrollIndicator={false}
+            scrollEventThrottle={16}
+            onScroll={onScroll}
+            onScrollEndDrag={onScrollEnd}
+            onMomentumScrollEnd={onScrollEnd}>
+            {renderColumns()}
+            <Animated.Code>
+              {() =>
+                block([
+                  cond(
+                    movingMode,
+                    call([absoluteX, absoluteY], handleRowPosition),
+                  ),
+                  cond(
+                    movingMode,
+                    call([translateX, translateY], handleColumnPosition),
+                  ),
+                ])
+              }
+            </Animated.Code>
 
-          <Animated.Code>
-            {() =>
-              block([
-                cond(
-                  movingMode,
-                  call([absoluteX, absoluteY], handleRowPosition),
-                ),
-                cond(
-                  movingMode,
-                  call([translateX, translateY], handleColumnPosition),
-                ),
-              ])
-            }
-          </Animated.Code>
-
-          {Utils.isFunction(accessoryRight) ? accessoryRight() : accessoryRight}
-        </ScrollView>
-        {renderHoverComponent()}
-      </Animated.View>
-    </PanGestureHandler>
+            {Utils.isFunction(accessoryRight) ? accessoryRight() : accessoryRight}
+          </ScrollView>
+          {renderHoverComponent()}
+        </Animated.View>
+      </PanGestureHandler>
+    </GestureHandlerRootView>
   );
 };
 
