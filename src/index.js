@@ -246,7 +246,7 @@ const DraggableBoard = ({
       }
       if (hoverRowItem.current) repository.showRow(hoverRowItem.current);
       hoverRowItem.current = null;
-    };å
+    };
 
   /**--------------------------------------------------------
    * Gesture 
