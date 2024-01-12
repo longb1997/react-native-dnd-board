@@ -3,6 +3,7 @@ import React, {
   useState,
   useCallback,
   useEffect,
+  memo,
 } from 'react';
 import {
   ScrollView,
@@ -19,7 +20,7 @@ import Utils from './commons/utils';
 const SCROLL_THRESHOLD = 50;
 const SCROLL_STEP = 0;
 
-const DraggableBoard = ({
+const DraggableBoard = memo(({
   repository,
   renderColumnWrapper,
   renderRow,
@@ -56,12 +57,12 @@ const DraggableBoard = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const listenRowChangeColumn = (fromColumnId, toColumnId) => {
+  const listenRowChangeColumn = useCallback((fromColumnId, toColumnId) => {
     hoverRowItem.current.columnId = toColumnId;
     hoverRowItem.current.oldColumnId = fromColumnId;
-  };
+  }, [hoverRowItem.current]);
 
-  const handleRowPosition = ([x, y]) => {
+  const handleRowPosition = useCallback(([x, y]) => {
     if (autoScrollInterval.current) {
       clearInterval(autoScrollInterval.current);
       autoScrollInterval.current = null;
@@ -85,7 +86,7 @@ const DraggableBoard = ({
                 y: 0,
                 animated: true,
               });
-            }, 800);
+            }, 500);
           } else if (x < xScrollThreshold) { // When at the left edge, start an interval to keep scrolling
             autoScrollInterval.current = setInterval(() => {
               scrollOffset.current -= SCROLL_STEP;
@@ -94,12 +95,12 @@ const DraggableBoard = ({
                 y: 0,
                 animated: true,
               });
-            }, 800);
+            }, 500);
           }
           repository.measureColumnsLayout();
         }
     }
-  };
+  }, [autoScrollInterval.current, scrollOffset.current, listenRowChangeColumn]);
 
   const onScroll = event => {
     scrollOffset.current = event.nativeEvent.contentOffset.x;
@@ -148,6 +149,9 @@ const DraggableBoard = ({
       }
     }
   };
+
+  const renderHoverComponentMemoized = useCallback(() => renderHoverComponent(), [hoverComponent, hoverRowItem.current]);
+ 
 
   const moveItem = async (hoverItem, rowItem, isColumn = false) => {
     rowItem.setHidden(true);
@@ -224,15 +228,15 @@ const DraggableBoard = ({
 
    // delay resetLayout
    const resetLayout = useCallback(() => {
-    setTimeout(() => {
       translateX.value = 0;
       translateY.value = 0;
-    }, 100);
   }, []);
 
     const onEndDrag = () => {
-      setHoverComponent(null);
-      setMovingMode(false);
+      if (autoScrollInterval.current) {
+        clearInterval(autoScrollInterval.current);
+        autoScrollInterval.current = null;
+      }
       if (onDragEnd
         && hoverRowItem.current
         && hoverRowItem.current.oldColumnId
@@ -246,6 +250,8 @@ const DraggableBoard = ({
       }
       if (hoverRowItem.current) repository.showRow(hoverRowItem.current);
       hoverRowItem.current = null;
+      setHoverComponent(null);
+      setMovingMode(false);
     };
 
   /**--------------------------------------------------------
@@ -285,11 +291,11 @@ const DraggableBoard = ({
             {renderColumns()}
             {Utils.isFunction(accessoryRight) ? accessoryRight() : accessoryRight}
           </ScrollView>
-          {renderHoverComponent()}
+          {renderHoverComponentMemoized()}
         </Animated.View>
     </GestureDetector>
   );
-};
+});
 
 export default DraggableBoard;
 export { Repository };
